@@ -1,0 +1,12 @@
+AuthType Basic
+AuthName "Input your ID and Password."
+AuthUserFile /home/site/wwwroot/.htpasswd
+require valid-user
+
+AddDefaultCharset UTF-8
+
+#<IfModule mod_rewrite.c>
+#    RewriteEngine on
+#    RewriteBase /
+#    RewriteRule ^(.*)$ https://hoge.jp [R=301]
+#</IfModule>

@@ -1,0 +1,83 @@
+#!/bin/bash
+
+########################################
+#
+# *** Create Storage Account ***
+# *** Create Storage Container ***
+# *** Create App Service Plan ***
+# *** Create Web apps on Linux ***
+# *** Set Logging(Only Production) ***
+# *** Set Basic Auth(Only Test) ***
+# *** Clean up ***
+#
+########################################
+
+. ../conf.txt
+
+# --------------------------------------------------------------
+# *** Create Storage Account ***
+az storage account create --name $STORAGEACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --location $LACATION --sku $STORAGEACCOUNT_SKU --https-only true --kind BlobStorage
+
+# *** Create Storage Container ***
+az storage container create --account-name $STORAGEACCOUNT_NAME --name $BACKUP_CONTAINER --public-access off
+az storage container create --account-name $STORAGEACCOUNT_NAME --name $APPLOGS_CONTAINER --public-access off
+az storage container create --account-name $STORAGEACCOUNT_NAME --name $WEBLOGS_CONTAINER --public-access off
+
+# *** Create App Service Plan ***
+az appservice plan create --name $APPSERVICEPLAM_NAME --resource-group $RESOURCE_GROUP_NAME --sku $APPSERVICEPLAM_SKU --number-of-workers $WEBAPP_NUM_INSTANCE --is-linux
+
+# *** Create Web apps***
+for WEBAPPS in ${WEBAPP_ARRAY[@]}; do
+    az webapp create --resource-group $RESOURCE_GROUP_NAME --plan $APPSERVICEPLAM_NAME --name $WEBAPPS --deployment-container-image-name <docker-ID>/<image name>:<tag>
+    az webapp config set \
+      --resource-group $RESOURCE_GROUP_NAME \
+      --name $WEBAPPS \
+      --always-on false \
+      --auto-heal-enabled true \
+      --min-tls-version 1.2 \
+      --use-32bit-worker-process false \
+      --http20-enabled false
+    az webapp config appsettings set \
+      --resource-group $RESOURCE_GROUP_NAME \
+      --name $WEBAPPS \
+      --settings WEBSITE_TIME_ZONE="Tokyo Standard Time" WEBSITES_ENABLE_APP_SERVICE_STORAGE=True
+    az webapp update --resource-group $RESOURCE_GROUP_NAME --name $WEBAPPS --https-only true
+
+    creds=($(az webapp deployment list-publishing-profiles \
+        --name  $WEBAPPS \
+        --resource-group $RESOURCE_GROUP_NAME \
+        --query "[?contains(publishMethod, 'FTP')].[publishUrl,userName,userPWD]" --output tsv))
+
+    subscription_id=$(az account show --query id)
+    az resource update --ids "/subscriptions/${subscription_id}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Web/sites/${WEBAPPS}/config/web" --set properties.virtualApplications[0].physicalPath="site\wwwroot\public" --api-version 2018-02-01
+    # *** Set Logging(Only Production Env) ***
+    if [ $WEBAPPS = ${PROJECT_NAME} ]; then
+      az webapp config appsettings set \
+        --name $WEBAPPS \
+        --resource-group $RESOURCE_GROUP_NAME \
+        --settings DB_HOST="${DBSERVER_NAME}.mysql.database.azure.com" DB_DATABASE="${PROD_DB}" DB_USERNAME="" DB_PASSWORD="" MYSQL_SSL="true" APP_KEY=""
+    
+      az webapp log config --resource-group $RESOURCE_GROUP_NAME --name $WEBAPPS --application-logging false --detailed-error-messages true --failed-request-tracing false --web-server-logging true --level information
+      
+      sastoken=$(az storage container generate-sas --account-name $STORAGEACCOUNT_NAME --name $BACKUP_CONTAINER --expiry $EXPIRYDATE --permissions rwdl --output tsv)
+      sasurl=https://${STORAGEACCOUNT_NAME}.blob.core.windows.net/${BACKUP_CONTAINER}?$sastoken
+      az webapp config backup update --resource-group $RESOURCE_GROUP_NAME --webapp-name $WEBAPPS --container-url $sasurl --frequency 1d --retain-one true --retention 10
+
+    fi
+
+    # *** Set Basic Auth(Only Test Env) ***
+    if [ $WEBAPPS = test-${PROJECT_NAME} ]; then
+      az webapp config appsettings set \
+        --name $WEBAPPS \
+        --resource-group $RESOURCE_GROUP_NAME \
+        --settings DB_HOST="${DBSERVER_NAME}.mysql.database.azure.com" DB_DATABASE="${TEST_DB}" DB_USERNAME="" DB_PASSWORD="" MYSQL_SSL="true" APP_KEY="" APP_DEBUG="true"
+      curl -T ./.htaccess -u ${creds[1]}:${creds[2]} --ftp-create-dirs ${creds[0]}/public
+      curl -T ./.htpasswd -u ${creds[1]}:${creds[2]} --ftp-create-dirs ${creds[0]}/public
+    fi
+
+    az webapp restart --resource-group $RESOURCE_GROUP_NAME --name $WEBAPPS 
+done
+
+# *** Clean up ***
+#az group delete --name $RESOURCE_GROUP_NAME
+# --------------------------------------------------------------

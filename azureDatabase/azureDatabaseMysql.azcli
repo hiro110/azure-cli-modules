@@ -1,0 +1,50 @@
+#!/bin/bash
+
+########################################
+#
+# *** Create Azure Database for MySQL Instance ***
+# *** Create Firewall ***
+# **** Show WebApp IP's ****
+# **** Set Firewall Rule's ****
+# *** Create Database ***
+# *** Set Parameter ***
+#
+########################################
+
+. ../conf.txt
+
+# --------------------------------------------------------------
+# *** Create Azure Database for MySQL Instance ***
+az mysql server create \
+  --resource-group $RESOURCE_GROUP_NAME \
+  --location $LACATION \
+  --name $DBSERVER_NAME \
+  --admin-user $MYSQL_ADMIN_NAME \
+  --admin-password  $MYSQL_ADMIN_PASS \
+  --ssl-enforcement Enabled \
+  --sku-name $MYSQL_SKU \
+  --storage-size $MYSQL_STORAGE_SIZE \
+  --version $MYSQL_VERSION \
+  --backup-retention 7
+
+# *** Create Firewall ***
+# **** Show WebApp IP's ****
+IPS=$(az webapp show --name ${PROJECT_NAME} -g $RESOURCE_GROUP_NAME --query "possibleOutboundIpAddresses")
+arr=( `echo $IPS | sed 's/"//g' | tr -s ',' ' '`)
+# **** Set Firewall Rule's ****
+i=1
+for WEBAPP_IP in ${arr[@]}; do
+    az mysql server firewall-rule create --resource-group $RESOURCE_GROUP_NAME --server $DBSERVER_NAME --name fromWebApp${i} --start-ip-address $WEBAPP_IP --end-ip-address $WEBAPP_IP
+    i=$((++i))
+done
+
+# *** Create Database ***
+az mysql db create -g $RESOURCE_GROUP_NAME -s $DBSERVER_NAME -n $TEST_DB --charset utf8 --collation utf8_general_ci
+az mysql db create -g $RESOURCE_GROUP_NAME -s $DBSERVER_NAME -n $PROD_DB --charset utf8 --collation utf8_general_ci
+
+# *** Set Parameter ***
+az mysql server configuration set --name slow_query_log --resource-group $RESOURCE_GROUP_NAME --server $DBSERVER_NAME --value ON
+az mysql server configuration set --name character_set_server --resource-group $RESOURCE_GROUP_NAME --server $DBSERVER_NAME --value UTF8
+az mysql server configuration set --name time_zone --resource-group $RESOURCE_GROUP_NAME --server $DBSERVER_NAME --value "+9:00"
+az mysql server configuration set --name Innodb_file_per_table --resource-group $RESOURCE_GROUP_NAME --server $DBSERVER_NAME --value ON
+# --------------------------------------------------------------

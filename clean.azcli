@@ -1,0 +1,12 @@
+. ./conf.txt
+
+# *** Azure Login ***
+# az login
+
+# *** Set Subscription ***
+# az account list -o table
+# az account set -s "<SubscriptionId>"
+# az account show
+
+# *** Clean up ***
+az group delete --name $RESOURCE_GROUP_NAME

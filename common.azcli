@@ -1,0 +1,26 @@
+#!/bin/bash
+
+########################################
+#
+# *** Azure Login ***
+# *** Set Subscription ***
+# *** Set Global Config ***
+# *** Create Resource Group ***
+#
+########################################
+
+. ./conf.txt
+
+# *** Azure Login ***
+# az login
+
+# *** Set Subscription ***
+# az account list -o table
+# az account set -s "<SubscriptionId>"
+# az account show
+
+# *** Set Global Config ***
+az configure --defaults location=$LACATION group=$RESOURCE_GROUP_NAME
+
+# *** Create Resource Group ***
+az group create --name $RESOURCE_GROUP_NAME --location $LACATION
